@@ -28,27 +28,58 @@ function syncHubSpotToNotion() {
       var row = data[i];
       var clientName = row[0] ? row[0].toString().trim() : "";
       var contactId = row[1] ? row[1].toString().trim() : "";
-      if (!clientName || !contactId) continue;
+      var notionPageId = row[8] ? row[8].toString().trim() : ""; // Column I (index 8)
+      if (!clientName || !contactId) continue; // Only sync if Contact ID exists
       try {
         var hubspotFields = fetchHubSpotContactFields(contactId);
         // Map PM and PA using mappings
         var mappedPm = CONFIG.PM_MAPPINGS[hubspotFields.product_manager] || hubspotFields.product_manager || "";
         var mappedPa = CONFIG.PA_MAPPINGS[hubspotFields.pa] || hubspotFields.pa || "";
         var mappedTier = CONFIG.TIER_MAPPINGS[hubspotFields.account_prioritisation] || hubspotFields.account_prioritisation || "";
-        var notionPageId = findNotionPageByClientName(clientName);
-        if (!notionPageId) {
-          logToSheet(`No Notion page for client: ${clientName}`);
-          continue;
+
+        // --- Sync HubSpot data back to Google Sheet ---
+        var valuesToUpdate = [
+          [
+            hubspotFields.hubspot_owner_id || "", // Column C: Account Manager
+            hubspotFields.product_manager || "",  // Column D: Product Manager
+            hubspotFields.client_health || "",    // Column E: Client Health
+            mappedTier,                           // Column F: Tier
+            mappedPa,                             // Column G: PA
+            hubspotFields.hs_content_membership_status || "" // Column H: Thoughtleadr KPI
+          ]
+        ];
+        hubspotSheet.getRange(i + 1, 3, 1, 6).setValues(valuesToUpdate);
+        logToSheet(`Updated Google Sheet for ${clientName}`);
+        // -----------------------------------------
+
+        var pmUserIds = [];
+        if (mappedPm && CONFIG.PM_ID_MAPPINGS[mappedPm]) {
+          pmUserIds.push({ id: CONFIG.PM_ID_MAPPINGS[mappedPm] });
+          logToSheet(`Using mapped Notion User ID for PM: ${mappedPm}`);
+        } else if (mappedPm) {
+          logToSheet(`No mapped ID for PM: ${mappedPm}. Looking up via API...`);
+          var userIdObjects = getNotionUserIdsByName(mappedPm);
+          if (userIdObjects.length > 0) {
+            pmUserIds = userIdObjects;
+          }
         }
-        var notionFields = {
-          product_manager: mappedPm,
-          pa: mappedPa,
-          client_health: hubspotFields.client_health || "",
-          account_prioritisation: mappedTier
-        };
-        var updated = updateNotionPageFields(notionPageId, notionFields);
-        logToSheet(`Updated Notion page for ${clientName}: ${updated}`);
-        Utilities.sleep(100); // API rate limit
+
+        // If Notion Page ID is not present, search by client name and store it
+        if (!notionPageId) {
+          notionPageId = findNotionPageByClientName(clientName);
+          if (notionPageId) {
+            hubspotSheet.getRange(i + 1, 9).setValue(notionPageId);
+            logToSheet(`Found and cached Notion Page ID for ${clientName}: ${notionPageId}`);
+          } else {
+            logToSheet(`No Notion page found for client: ${clientName}`);
+            continue;
+          }
+        }
+
+        if (notionPageId) {
+          updateNotionPageFields(notionPageId, pmUserIds, mappedPa, hubspotFields.client_health, mappedTier);
+          logToSheet(`Updated Notion page for ${clientName} | PM: ${(pmUserIds && pmUserIds.length > 0) ? pmUserIds.map(u => u.id).join(',') : mappedPm} | PA: ${mappedPa} | Client Health: ${hubspotFields.client_health || ''} | Tier: ${mappedTier} | Notion Page ID: ${notionPageId}`);
+        }
       } catch (err) {
         logToSheet(`Error syncing client ${clientName}: ${err}`);
       }
@@ -57,6 +88,19 @@ function syncHubSpotToNotion() {
   } catch (e) {
     logToSheet("syncHubSpotToNotion: Fatal error: " + e.toString());
   }
+}
+
+/**
+ * One-time setup function to store API keys and other secrets in Script Properties.
+ * Run this function once from the Apps Script editor.
+ */
+function _setupScriptProperties() {
+  PropertiesService.getScriptProperties().setProperties({
+    [CONFIG.HUBSPOT_API_TOKEN_PROP]: 'YOUR_HUBSPOT_API_TOKEN', // Replace with your HubSpot Token
+    [CONFIG.NOTION_API_KEY_PROP]: 'YOUR_NOTION_API_KEY',   // Replace with your Notion Key
+    [CONFIG.NOTION_DB_ID_PROP]: '1316d5c88b1d8089a319de1867b56c70'      // Replace with your Notion DB ID
+  });
+  Logger.log('Script properties have been set successfully.');
 }
 
 function setupDailySyncTrigger() {

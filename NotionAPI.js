@@ -36,15 +36,64 @@ function findNotionPageByClientName(clientName) {
   return (json.results && json.results.length > 0) ? json.results[0].id : null;
 }
 
-function updateNotionPageFields(pageId, fields) {
+// Helper to get Notion userId(s) by name as a fallback
+function getNotionUserIdsByName(names) {
   const notionApiKey = getNotionApiKey_();
   if (!notionApiKey) throw new Error("Notion API key not configured");
+  if (!names) return [];
+  const nameArr = names.split(',').map(s => s.trim()).filter(Boolean);
+  const userIds = [];
+  for (var i = 0; i < nameArr.length; i++) {
+    const url = `${CONFIG.NOTION_API_URL}/users`;
+    const options = {
+      method: "get",
+      headers: {
+        "Authorization": `Bearer ${notionApiKey}`,
+        "Notion-Version": "2022-06-28"
+      },
+      muteHttpExceptions: true
+    };
+    const response = UrlFetchApp.fetch(url, options);
+    if (response.getResponseCode() !== 200) continue;
+    const users = JSON.parse(response.getContentText()).results || [];
+    const user = users.find(u => u.name && u.name.trim().toLowerCase() === nameArr[i].toLowerCase());
+    if (user && user.id) userIds.push({ id: user.id });
+  }
+  return userIds;
+}
+
+function updateNotionPageFields(pageId, pmUserIds, paName, clientHealth, tier) {
+  const notionApiKey = getNotionApiKey_();
+  if (!notionApiKey) throw new Error("Notion API key not configured");
+
   const url = `${CONFIG.NOTION_API_URL}/pages/${pageId}`;
   const properties = {};
-  if (fields.product_manager) properties["PM"] = { people: [{ name: fields.product_manager }] };
-  if (fields.pa) properties["PA"] = { people: [{ name: fields.pa }] };
-  if (fields.client_health) properties["Health"] = { select: { name: fields.client_health } };
-  if (fields.account_prioritisation) properties["Tier"] = { select: { name: fields.account_prioritisation } };
+
+  // PM as people property
+  if (pmUserIds && pmUserIds.length > 0) {
+    properties['PM'] = { people: pmUserIds };
+  }
+
+  // PA as multi_select option
+  if (paName) {
+    properties['PA'] = { multi_select: [{ name: paName }] };
+  }
+
+  // Client Health as select option
+  if (clientHealth) {
+    properties['Health'] = { select: { name: clientHealth } };
+  }
+
+  // Tier as select option
+  if (tier) {
+    properties['Tier'] = { select: { name: tier } };
+  }
+
+  if (Object.keys(properties).length === 0) {
+    logToSheet(`No fields to update for pageId: ${pageId}`);
+    return true; // Nothing to update
+  }
+
   const payload = { properties };
   const options = {
     method: "patch",
@@ -56,6 +105,14 @@ function updateNotionPageFields(pageId, fields) {
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
   };
+
   const response = UrlFetchApp.fetch(url, options);
-  return response.getResponseCode() === 200;
+  const responseCode = response.getResponseCode();
+
+  if (responseCode !== 200) {
+    logToSheet(`Error updating Notion page ${pageId}. Status: ${responseCode}. Response: ${response.getContentText()}`);
+    return false;
+  }
+
+  return true;
 }
