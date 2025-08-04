@@ -8,7 +8,7 @@ function getHubSpotApiToken_() {
 function fetchHubSpotContactFields(contactId) {
   const apiToken = getHubSpotApiToken_();
   if (!apiToken) throw new Error("HubSpot API token not configured");
-  const url = `${CONFIG.HUBSPOT_API_URL}/${contactId}?properties=product_manager,pa,client_health,account_prioritisation`;
+    const url = `${CONFIG.HUBSPOT_API_URL}/${contactId}?properties=product_manager,pa,client_health,account_prioritisation,client_status,account_manager,reason_for_account_prioritisation,hubspot_owner_id,hs_content_membership_status`;
   const options = {
     method: "get",
     headers: { "Authorization": `Bearer ${apiToken}` },
@@ -43,7 +43,7 @@ function searchHubSpotContactByName(clientName) {
   const firstWord = clientName.trim().split(" ")[0] || "";
   if (!firstWord) return "";
   const url = `${CONFIG.HUBSPOT_API_URL}/search`;
-  const properties = ["firstname", "lastname", "product_manager", "pa", "client_health", "account_prioritisation", "hs_content_membership_status", "hubspot_owner_id"];
+    const properties = ["firstname", "lastname", "product_manager", "pa", "client_health", "account_prioritisation", "hs_content_membership_status", "hubspot_owner_id", "client_status", "account_manager", "reason_for_account_prioritisation"];
   const payload = {
     filterGroups: [{ filters: [{ propertyName: "firstname", operator: "CONTAINS_TOKEN", value: firstWord }] }],
     properties: properties,

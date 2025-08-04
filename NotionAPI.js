@@ -62,7 +62,46 @@ function getNotionUserIdsByName(names) {
   return userIds;
 }
 
-function updateNotionPageFields(pageId, pmUserIds, paName, clientHealth, tier) {
+function getNotionPageStatus(pageId) {
+  const notionApiKey = getNotionApiKey_();
+  if (!notionApiKey) throw new Error("Notion API key not configured");
+
+  const url = `${CONFIG.NOTION_API_URL}/pages/${pageId}`;
+  const options = {
+    method: "get",
+    headers: {
+      "Authorization": `Bearer ${notionApiKey}`,
+      "Content-Type": "application/json",
+      "Notion-Version": "2022-06-28"
+    },
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch(url, options);
+  const responseCode = response.getResponseCode();
+
+  if (responseCode !== 200) {
+    // It's better to throw an error to be caught by the calling function
+    throw new Error(`Failed to fetch Notion page ${pageId}. Status: ${responseCode}. Response: ${response.getContentText()}`);
+  }
+
+  const json = JSON.parse(response.getContentText());
+  const statusProp = json.properties['Status'];
+
+  // Handle 'multi_select' property type
+  if (statusProp && statusProp.type === 'multi_select' && statusProp.multi_select && statusProp.multi_select.length > 0) {
+    return statusProp.multi_select.map(option => option.name).join(', ');
+  }
+
+  // Handle 'status' property type as a fallback, just in case
+  if (statusProp && statusProp.type === 'status' && statusProp.status) {
+    return statusProp.status.name;
+  }
+
+  return null; // Return null if status is not found or the property type is wrong
+}
+
+function updateNotionPageFields(pageId, pmUserIds, paName, clientHealth, tier, clientStatus, accountManager, tierReasoning) {
   const notionApiKey = getNotionApiKey_();
   if (!notionApiKey) throw new Error("Notion API key not configured");
 
@@ -87,6 +126,21 @@ function updateNotionPageFields(pageId, pmUserIds, paName, clientHealth, tier) {
   // Tier as select option
   if (tier) {
     properties['Tier'] = { select: { name: tier } };
+  }
+
+  // Client Status as multi-select option
+  if (clientStatus) {
+    properties['Client Status'] = { multi_select: [{ name: clientStatus }] };
+  }
+
+  // Account Manager as select option
+  if (accountManager) {
+    properties['Account Manager'] = { select: { name: accountManager } };
+  }
+
+  // Tier Reasoning as rich_text
+  if (tierReasoning) {
+    properties['Tier Reasoning'] = { rich_text: [{ text: { content: tierReasoning } }] };
   }
 
   if (Object.keys(properties).length === 0) {
