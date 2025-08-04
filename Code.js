@@ -57,6 +57,8 @@ function syncHubSpotToNotion() {
 
         hubspotSheet.getRange(i + 1, 10).setValue(newClientStatus); // Update Column J: Client Status
 
+        // Log old and new status for every row
+        logToSheet(`Client '${clientName}' old status: '${oldClientStatus}', new status: '${newClientStatus}'`);
         // Rule 1: If status changes to "churned" for the first time, set timestamp.
         if (newClientStatus.toLowerCase() === 'churned' && oldClientStatus.toLowerCase() !== 'churned') {
           hubspotSheet.getRange(i + 1, 12).setValue(new Date()); // Column L: Churned Timestamp
@@ -66,8 +68,13 @@ function syncHubSpotToNotion() {
         else if (newClientStatus.toLowerCase() !== 'churned' && oldClientStatus.toLowerCase() === 'churned') {
           hubspotSheet.getRange(i + 1, 12).clearContent(); // Column L: Clear Timestamp
           logToSheet(`Client '${clientName}' status changed from 'churned'. Timestamp cleared.`);
+        } else if (newClientStatus.toLowerCase() !== 'churned' && oldClientStatus.toLowerCase() !== 'churned') {
+          // Status unchanged and not churned
+          logToSheet(`Client '${clientName}' status unchanged and not churned. No timestamp action.`);
+        } else if (newClientStatus.toLowerCase() === 'churned' && oldClientStatus.toLowerCase() === 'churned') {
+          // Already churned, no action
+          logToSheet(`Client '${clientName}' already churned. No timestamp action.`);
         }
-        // Rule 3 (Implicit): If status is already "churned", do nothing.
 
         hubspotSheet.getRange(i + 1, 11).setValue(hubspotFields.reason_for_account_prioritisation || ""); // Column K: Tier Reasoning
         // --- End of Client Status Logic ---
@@ -380,6 +387,7 @@ function generateWeeklySummaryReport() {
       var row = data[i];
       var status = row[9] ? row[9].toString().trim().toLowerCase() : ""; // Column J
       var churnedTimestamp = row[11] ? new Date(row[11]) : null; // Column L
+      logToSheet(`Summary: Row ${i + 1} status='${status}', churnedTimestamp='${churnedTimestamp}'`);
 
       if (status === 'active') {
         activeClients++;

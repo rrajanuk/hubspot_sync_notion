@@ -130,7 +130,7 @@ function updateNotionPageFields(pageId, pmUserIds, paName, clientHealth, tier, c
 
   // Client Status as multi-select option
   if (clientStatus) {
-    properties['Client Status'] = { multi_select: [{ name: clientStatus }] };
+    properties['Status'] = { multi_select: [{ name: clientStatus }] };
   }
 
   // Account Manager as select option
