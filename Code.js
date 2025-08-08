@@ -360,6 +360,16 @@ function findExactMatch(data, value, columnIndex) {
  * Generates a weekly summary report of client statuses and logs it.
  * This function is intended to be run by a time-based trigger.
  */
+// Helper function to format client names as 'First L.'
+function formatClientName(fullName) {
+  if (!fullName) return "";
+  var nameParts = fullName.trim().split(' ');
+  if (nameParts.length < 2) return fullName; // Return full name if it's just one word
+  var firstName = nameParts[0];
+  var lastNameInitial = nameParts[nameParts.length - 1].charAt(0);
+  return `${firstName} ${lastNameInitial}.`;
+}
+
 function generateWeeklySummaryReport() {
   try {
     logToSheet("generateWeeklySummaryReport: Start");
@@ -374,10 +384,13 @@ function generateWeeklySummaryReport() {
     }
 
     var activeClients = 0;
+    var noResponseClients = 0;
     var onboardingClients = 0;
+    var pausedClients = 0;
     var churnedPendingClients = 0;
     var churnedLastWeek = 0;
-    var totalCurrentClients = 0;
+    var onboardingClientNames = [];
+    var churnedClientNames = [];
 
     var today = new Date();
     var sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -391,20 +404,21 @@ function generateWeeklySummaryReport() {
 
       if (status === 'active') {
         activeClients++;
-        totalCurrentClients++;
+      } else if (status === 'no response') {
+        noResponseClients++;
       } else if (status === 'onboarding') {
         onboardingClients++;
-        totalCurrentClients++;
+        onboardingClientNames.push(formatClientName(clientName));
+      } else if (status === 'paused') {
+        pausedClients++;
       } else if (status === 'churned pending') {
         churnedPendingClients++;
       } else if (status === 'churned') {
         // Check if churned within the last 7 days (inclusive of today)
         if (churnedTimestamp && churnedTimestamp >= sevenDaysAgo && churnedTimestamp <= today) {
           churnedLastWeek++;
+          churnedClientNames.push(formatClientName(clientName));
         }
-      } else if (status !== '' && status !== 'churned') {
-        // Count other non-churned statuses as current clients
-        totalCurrentClients++;
       }
     }
 
@@ -416,51 +430,63 @@ function generateWeeklySummaryReport() {
     }
 
     var slackChannel = 'C08136WGH70'; // As requested
-    var slackMessage = {
-      channel: slackChannel,
-      blocks: [
+
+    // --- Build Slack Message Blocks ---
+    var blocks = [
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: 'Weekly Client Summary Report 📊'
+        }
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Client Status Breakdown:*\n- *Active:* ${activeClients}\n- *No Response:* ${noResponseClients}\n- *Paused:* ${pausedClients}\n- *Churned Pending:* ${churnedPendingClients}`
+        }
+      },
+      { type: 'divider' }
+    ];
+
+    // Onboarding Clients Section
+    var onboardingText = `*Clients Onboarding (${onboardingClients}):*`;
+    if (onboardingClientNames.length > 0) {
+      onboardingText += ' ' + onboardingClientNames.join(', ');
+    }
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: onboardingText } });
+    blocks.push({ type: 'divider' });
+
+    // Churned Clients Section
+    var churnedText = `*Churned Last 7 Days (${churnedLastWeek}):*`;
+    if (churnedClientNames.length > 0) {
+      churnedText += ' ' + churnedClientNames.join(', ');
+    }
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: churnedText } });
+    blocks.push({ type: 'divider' });
+
+    // Mention and Context Section
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: '<@U066YSZFKSB> This is the weekly client summary.'
+      }
+    });
+    blocks.push({
+      type: 'context',
+      elements: [
         {
-          type: 'header',
-          text: {
-            type: 'plain_text',
-            text: 'Weekly Client Summary Report 📊'
-          }
-        },
-        {
-          type: 'section',
-          fields: [
-            {
-              type: 'mrkdwn',
-              text: `*Total Current Clients:* ${totalCurrentClients}`
-            },
-            {
-              type: 'mrkdwn',
-              text: `*Active Clients:* ${activeClients}`
-            },
-            {
-              type: 'mrkdwn',
-              text: `*Onboarding:* ${onboardingClients}`
-            },
-            {
-              type: 'mrkdwn',
-              text: `*Churned Pending:* ${churnedPendingClients}`
-            },
-            {
-              type: 'mrkdwn',
-              text: `*Churned Last 7 Days:* ${churnedLastWeek}`
-            }
-          ]
-        },
-        {
-          type: 'context',
-          elements: [
-            {
-              type: 'mrkdwn',
-              text: `Report generated on ${new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' })}`
-            }
-          ]
+          type: 'mrkdwn',
+          text: `Report generated on ${new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' })}`
         }
       ]
+    });
+
+    var slackMessage = {
+      channel: slackChannel,
+      blocks: blocks
     };
 
     var slackResponse = UrlFetchApp.fetch('https://slack.com/api/chat.postMessage', {
